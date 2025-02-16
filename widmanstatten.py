@@ -1,8 +1,7 @@
 import tkinter as tk
 import numpy as np
-from math import cos, sin, pi
 from random import randint, choice
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 np.set_printoptions(precision=2)
 
@@ -17,7 +16,6 @@ class Crystal:
     length_right: int
     length_left: int
     width: int
-    angle: float
     color: str
     speed: int
     id: str
@@ -25,15 +23,22 @@ class Crystal:
     growing_left: bool
     limit_right: int
     limit_left: int
+    angle: float
+    cos: float = field(init=False)
+    sin: float = field(init=False)
+
+    def __post_init__(self):
+        self.cos = np.cos(self.angle)
+        self.sin = np.sin(self.angle)
 
 class AnimationWindow:
 
     def __init__(self, 
                  width=500, 
                  height=500, 
-                 fps=2, 
+                 fps=4, 
                  init_crystal_count=10, 
-                 mean_crystal_width=20, 
+                 mean_crystal_width=15, 
                  mean_crystal_speed=5, 
                  orientation_angles=[-1, 0, 1], 
                  background="steelblue4"):
@@ -71,69 +76,55 @@ class AnimationWindow:
         self.canvas.pack()
 
     def create_window(self):
-                
+
         distances = self.calc_intersection_distances()
-        self.set_length_limits(distances)
+        self.set_growth_limits(distances)
         
         self.render_crystals()
-        self.render_centers()
-
         self.root.after(self.frame_delay, self.render_crystals)
-
         self.root.mainloop()
 
-    def calc_crystal_corners(self, crystal: Crystal):
-
-        c = cos(crystal.angle)
-        s = sin(crystal.angle)
-
-        half_width = crystal.width // 2
-
-        p1 = Point(crystal.center.x + crystal.length_right*c - half_width*s, crystal.center.y - crystal.length_right*s - half_width*c)
-        p2 = Point(crystal.center.x + crystal.length_right*c + half_width*s, crystal.center.y - crystal.length_right*s + half_width*c)
-        p3 = Point(crystal.center.x - crystal.length_left*c + half_width*s, crystal.center.y + crystal.length_left*s + half_width*c)
-        p4 = Point(crystal.center.x - crystal.length_left*c - half_width*s, crystal.center.y + crystal.length_left*s - half_width*c)
-
-        return p1, p2, p3, p4
-    
     def calc_intersection_distances(self):
 
-        data = np.array([(crystal.center.x, crystal.center.y, crystal.angle, crystal.speed) for crystal in self.crystals], dtype=float)
+        crystal_data = np.array([(crystal.center.x, crystal.center.y, crystal.angle, crystal.cos, crystal.speed) for crystal in self.crystals], dtype=float)
         
-        x_coords = np.array(np.meshgrid(data[:,0], data[:,0]))
-        y_coords = np.array(np.meshgrid(data[:,1], data[:,1]))
-        growth_speeds = data[:,3]
-        cosines = np.cos(np.array(np.meshgrid(data[:,2], data[:,2])))
-        tangents = np.tan(np.array(np.meshgrid(data[:,2], data[:,2])))
+        x_coords = np.array(np.meshgrid(crystal_data[:,0], crystal_data[:,0]))
+        y_coords = np.array(np.meshgrid(crystal_data[:,1], crystal_data[:,1]))
+        tangents = np.tan(np.array(np.meshgrid(crystal_data[:,2], crystal_data[:,2])))
+        cosines = np.array(np.meshgrid(crystal_data[:,3], crystal_data[:,3]))
+        growth_speeds = crystal_data[:,4]
 
-        distances = (y_coords[0] - y_coords[1] + tangents[0] * (x_coords[0] - x_coords[1])) / (cosines[1] * (tangents[0] - tangents[1]) + 10**-8)
-        distances = np.where(tangents[0] == tangents[1], 0, distances)
+        eps = 10**-8
+        distances_with_asymptotes = (y_coords[0] - y_coords[1] + tangents[0] * (x_coords[0] - x_coords[1])) / (cosines[1] * (tangents[0] - tangents[1]) + eps)
+        distances = np.where(tangents[0] == tangents[1], 0, distances_with_asymptotes)
 
         distances = distances / growth_speeds[...,np.newaxis]
         return distances
-
-    def set_length_limits(self, distances):
+    
+    def set_growth_limits(self, dist_matrix):
 
         reached_xsections = np.zeros((self.init_crystal_count, self.init_crystal_count))
         right_limits = np.full(self.init_crystal_count, self.max_length)
         left_limits = np.full(self.init_crystal_count, self.max_length)
 
 
-        for main_index, line in enumerate(distances):
-            for cross_index in np.argsort(line)[::-1][:np.sum(line > 0)]:
-                if self.line_passes_xsection(distances, reached_xsections, main_index, cross_index):
+        for crystal_index, intersection_distances in enumerate(dist_matrix):
+            for intersection_index in np.argsort(intersection_distances)[::-1][:np.sum(intersection_distances > 0)]:
+                if self.line_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
                     break
                 else:
-                    right_limits[main_index] = abs(line[cross_index])
-            for cross_index in np.argsort(line)[:np.sum(line < 0)]:
-                if self.line_passes_xsection(distances, reached_xsections, main_index, cross_index):
+                    right_limits[crystal_index] = abs(intersection_distances[intersection_index])
+
+            for intersection_index in np.argsort(intersection_distances)[:np.sum(intersection_distances < 0)]:
+                if self.line_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
                     break
                 else:
-                    left_limits[main_index] = abs(line[cross_index])
+                    left_limits[crystal_index] = abs(intersection_distances[intersection_index])
 
         for i, crystal in enumerate(self.crystals):
             crystal.limit_right = right_limits[i]*crystal.speed
             crystal.limit_left = left_limits[i]*crystal.speed
+
 
     def line_passes_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
         if (self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index) 
@@ -178,12 +169,7 @@ class AnimationWindow:
                 
         reached_xsections[main_index, cross_index] = 1
         return True
-
-    def redraw_crystal(self, crystal: Crystal):
-        p1, p2, p3, p4 = self.calc_crystal_corners(crystal)
-        self.canvas.delete(crystal.id)
-        self.canvas.create_polygon(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, fill=crystal.color, tags=crystal.id)
-
+    
     def render_crystals(self):
         for crystal in self.crystals:
             if crystal.growing_right or crystal.growing_left:
@@ -198,6 +184,23 @@ class AnimationWindow:
                         crystal.growing_left = False
         
         self.root.after(self.frame_delay, self.render_crystals)
+
+    def redraw_crystal(self, crystal: Crystal):
+        p1, p2, p3, p4 = self.calc_crystal_corners(crystal)
+        self.canvas.delete(crystal.id)
+        self.canvas.create_polygon(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, fill=crystal.color, tags=crystal.id)
+
+    def calc_crystal_corners(self, crystal: Crystal):
+
+        half_width = crystal.width // 2
+
+        p1 = Point(crystal.center.x + crystal.length_right * crystal.cos - half_width * crystal.sin, crystal.center.y - crystal.length_right * crystal.sin - half_width * crystal.cos)
+        p2 = Point(crystal.center.x + crystal.length_right * crystal.cos + half_width * crystal.sin, crystal.center.y - crystal.length_right * crystal.sin + half_width * crystal.cos)
+        p3 = Point(crystal.center.x - crystal.length_left * crystal.cos + half_width * crystal.sin, crystal.center.y + crystal.length_left * crystal.sin + half_width * crystal.cos)
+        p4 = Point(crystal.center.x - crystal.length_left * crystal.cos - half_width * crystal.sin, crystal.center.y + crystal.length_left * crystal.sin - half_width * crystal.cos)
+
+        return p1, p2, p3, p4
+
 
     def render_centers(self):
         for crystal in self.crystals:
