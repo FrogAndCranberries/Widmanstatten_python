@@ -171,21 +171,36 @@ class AnimationWindow:
         return True
     
     def render_crystals(self):
+
         for crystal in self.crystals:
             if crystal.growing_right or crystal.growing_left:
                 self.redraw_crystal(crystal)
-                if crystal.growing_right:
-                    crystal.length_right += crystal.speed
-                    if crystal.length_right >= crystal.limit_right:
-                        crystal.growing_right = False
-                if crystal.growing_left:
-                    crystal.length_left += crystal.speed
-                    if crystal.length_left >= crystal.limit_left:
-                        crystal.growing_left = False
-        
+                self.extend_crystal(crystal)
+
         self.root.after(self.frame_delay, self.render_crystals)
 
+    def extend_crystal(self, crystal: Crystal):
+
+        if crystal.growing_right:
+            self.extend_crystal_right(crystal)
+            
+        if crystal.growing_left:
+            self.extend_crystal_left(crystal)
+
+    def extend_crystal_right(self, crystal: Crystal):
+
+        crystal.length_right += crystal.speed
+        if crystal.length_right >= crystal.limit_right:
+            crystal.growing_right = False
+
+    def extend_crystal_left(self, crystal: Crystal):
+
+        crystal.length_left += crystal.speed
+        if crystal.length_left >= crystal.limit_left:
+            crystal.growing_left = False
+
     def redraw_crystal(self, crystal: Crystal):
+
         p1, p2, p3, p4 = self.calc_crystal_corners(crystal)
         self.canvas.delete(crystal.id)
         self.canvas.create_polygon(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, fill=crystal.color, tags=crystal.id)
@@ -202,9 +217,10 @@ class AnimationWindow:
         return p1, p2, p3, p4
 
 
-    def render_centers(self):
+    def render_centers(self, radius: int = 10, color: str = "red"):
+
         for crystal in self.crystals:
-            self.canvas.create_oval(crystal.center.x - 10, crystal.center.y - 10, crystal.center.x + 10, crystal.center.y + 10, fill="red")
+            self.canvas.create_oval(crystal.center.x - radius, crystal.center.y - radius, crystal.center.x + radius, crystal.center.y + radius, fill=color)
 
 
         
