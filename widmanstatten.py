@@ -26,41 +26,61 @@ class Crystal:
     limit_right: int
     limit_left: int
 
-class WPattern:
+class AnimationWindow:
 
-    def __init__(self):
+    def __init__(self, 
+                 width=500, 
+                 height=500, 
+                 fps=2, 
+                 init_crystal_count=10, 
+                 mean_crystal_width=20, 
+                 mean_crystal_speed=5, 
+                 orientation_angles=[-1, 0, 1], 
+                 background="steelblue4"):
         
-        self.w = 500
-        self.h = 500
-        self.margin = self.w // 10
-        self.init_crystal_count = 7
+        self.width = width
+        self.height = height
+        self.margin = self.width // 10
+        self.frame_delay = 1000//fps
+        self.init_crystal_count = init_crystal_count
+        self.init_crystal_length = 1
+        self.mean_crystal_width = mean_crystal_width
+        self.mean_crystal_speed = mean_crystal_speed
+        self.max_length = np.sqrt(self.width**2 + self.height**2)
+        self.orientation_angles = orientation_angles # 60 degrees = approx 1 rad
 
-        self.mean_crystal_width = 10
-        self.mean_crystal_speed = 5
-        self.crystal_half_length = 20
-        self.max_length = np.sqrt(self.w**2 + self.h**2)
-        self.orientation_angles = [-1, 0, 1] # 60 degrees = approx 1 rad
-
-        self.crystals = [Crystal(center = Point(randint(self.margin, self.w - self.margin), randint(self.margin, self.h-self.margin)), 
-                                 length_right = self.crystal_half_length, 
-                                 length_left = self.crystal_half_length,
-                                 width = self.mean_crystal_width + randint(-self.mean_crystal_width // 2, self.mean_crystal_width // 2), 
+        self.crystals = [Crystal(center = Point(randint(self.margin, self.width - self.margin), randint(self.margin, self.height-self.margin)), 
+                                 length_right = self.init_crystal_length,
+                                 length_left = self.init_crystal_length,
+                                 width = randint(self.mean_crystal_width // 2, self.mean_crystal_width * 3 // 2), 
                                  angle = choice(self.orientation_angles),
-                                 color = "gray" + str(id),#str(randint(30, 80)),
-                                 speed = self.mean_crystal_speed + randint(-self.mean_crystal_speed // 5, self.mean_crystal_speed // 5),
+                                 color = "gray" + str(id * 100 // init_crystal_count),
+                                 speed = randint(self.mean_crystal_speed * 3 // 4, self.mean_crystal_speed * 5 // 4),
                                  id = str(id),
                                  growing_right = True,
                                  growing_left = True,
                                  limit_right = self.max_length,
                                  limit_left = self.max_length)
-                                 for id in range(0, self.init_crystal_count*15, 15)]
+                                 for id in range(self.init_crystal_count)]
 
         self.root = tk.Tk()
         self.root.title = "Widmastatten patern growth animation"
-        self.root.geometry(f"{self.w}x{self.h}")
+        self.root.geometry(f"{self.width}x{self.height}")
 
-        self.canvas = tk.Canvas(self.root, width=self.w, height=self.h, bg="steelblue4")
+        self.canvas = tk.Canvas(self.root, width=self.width, height=self.height, bg=background)
         self.canvas.pack()
+
+    def create_window(self):
+                
+        distances = self.calc_intersection_distances()
+        self.set_length_limits(distances)
+        
+        self.render_crystals()
+        self.render_centers()
+
+        self.root.after(self.frame_delay, self.render_crystals)
+
+        self.root.mainloop()
 
     def calc_crystal_corners(self, crystal: Crystal):
 
@@ -89,12 +109,7 @@ class WPattern:
         distances = (y_coords[0] - y_coords[1] + tangents[0] * (x_coords[0] - x_coords[1])) / (cosines[1] * (tangents[0] - tangents[1]) + 10**-8)
         distances = np.where(tangents[0] == tangents[1], 0, distances)
 
-        print(distances)
-        print(growth_speeds)
-        print(growth_speeds.shape)
         distances = distances / growth_speeds[...,np.newaxis]
-
-        print(distances)
         return distances
 
     def set_length_limits(self, distances):
@@ -116,15 +131,14 @@ class WPattern:
                 else:
                     left_limits[main_index] = abs(line[cross_index])
 
-        # right_limits[right_limits == 0] = self.max_length
-        # left_limits[left_limits == 0] = self.max_length
-        print(right_limits)
-        print(left_limits)
-
         for i in range(self.init_crystal_count):
             self.crystals[i].limit_right = right_limits[i]*self.crystals[i].speed
             self.crystals[i].limit_left = left_limits[i]*self.crystals[i].speed
-    
+
+
+
+
+
     def line_passes_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
         if (self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index) 
             and (np.abs(dist_matrix[main_index, cross_index]) < np.abs(dist_matrix[cross_index, main_index]) 
@@ -134,10 +148,6 @@ class WPattern:
 
     def line_reaches_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
 
-        #print(dist_matrix)
-        print(main_index)
-        print(cross_index)
-        print(reached_xsections)
 
         if reached_xsections[main_index, cross_index] != 0:
             return reached_xsections[main_index, cross_index] == 1
@@ -148,8 +158,6 @@ class WPattern:
             return True
         
         if main_dist > 0:
-            #print(np.argsort(np.where(
-            #        np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist), dist_matrix[main_index], np.inf)))
             for xsection in np.argsort(np.where(
                     np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist), dist_matrix[main_index], np.inf))[:sum(np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist))]:
                 
@@ -158,15 +166,12 @@ class WPattern:
                 elif reached_xsections[main_index, xsection] == -1:
                     raise(Exception("fuck you know what"))
                 if self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    print("About to set xsection reached to 1 at: " + str(reached_xsections[main_index, xsection]))
                     reached_xsections[main_index, xsection] = 1
                 else:
                     reached_xsections[main_index][dist_matrix[main_index] > dist_matrix[main_index, xsection]] = -1
                     return False
 
         if main_dist < 0:
-            print(dist_matrix[main_index][np.argsort(np.where(
-                    np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist), dist_matrix[main_index], -np.inf))[::-1][:sum(np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist))]])
             for xsection in np.argsort(np.where(
                     np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist), dist_matrix[main_index], -np.inf))[::-1][:sum(np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist))]:
                 
@@ -175,7 +180,6 @@ class WPattern:
                 elif reached_xsections[main_index, xsection] == -1:
                     raise(Exception("fuck you know what"))
                 if self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    print("About to set xsection reached to 1 at: " + str(reached_xsections[main_index, xsection]))
                     reached_xsections[main_index, xsection] = 1
                 else:
                     reached_xsections[main_index][dist_matrix[main_index] < dist_matrix[main_index, xsection]] = -1
@@ -205,25 +209,15 @@ class WPattern:
                     if self.crystals[i].length_left >= self.crystals[i].limit_left:
                         self.crystals[i].growing_left = False
         
-        self.root.after(200, self.render_crystals)
+        self.root.after(self.frame_delay, self.render_crystals)
 
     def render_centers(self):
         for crystal in self.crystals:
             self.canvas.create_oval(crystal.center.x - 10, crystal.center.y - 10, crystal.center.x + 10, crystal.center.y + 10, fill="red")
 
-    def create_window(self):
-                
-        distances = self.calc_intersection_distances()
-        self.set_length_limits(distances)
-        
-        self.render_crystals()
-        self.render_centers()
 
-        self.root.after(1000, self.render_crystals)
-
-        self.root.mainloop()
         
 
     
-master = WPattern()
+master = AnimationWindow()
 master.create_window()
