@@ -112,13 +112,13 @@ class AnimationWindow:
 
         for crystal_index, intersection_distances in enumerate(dist_matrix):
             for intersection_index in np.argsort(intersection_distances)[::-1][:np.sum(intersection_distances > 0)]:
-                if self.line_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
+                if self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
                     break
                 else:
                     right_limits[crystal_index] = abs(intersection_distances[intersection_index])
 
             for intersection_index in np.argsort(intersection_distances)[:np.sum(intersection_distances < 0)]:
-                if self.line_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
+                if self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
                     break
                 else:
                     left_limits[crystal_index] = abs(intersection_distances[intersection_index])
@@ -131,44 +131,36 @@ class AnimationWindow:
             crystal.limit_left = left_limits[i]*crystal.speed
 
 
-    def line_passes_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
+    def crystal_passes_xsection(self, dist_matrix, reached_xsections, crystal_index, obstacle_index):
         
-        crystal_reaches_xsection = self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index)
-        crystal_arrives_first = np.abs(dist_matrix[main_index, cross_index]) < np.abs(dist_matrix[cross_index, main_index])
+        crystal_reaches_xsection = self.crystal_reaches_xsection(dist_matrix, reached_xsections, crystal_index, obstacle_index)
+        crystal_arrives_first = np.abs(dist_matrix[crystal_index, obstacle_index]) < np.abs(dist_matrix[obstacle_index, crystal_index])
 
         # To prevent issues with deeper recursive calls writing into reached_xsections before higher calls finish, 
-        # self.line_reaches_xsection below should be only called if crystal_reaches_xsection = True and crystal_arrives_first = False
+        # self.crystal_reaches_xsection below should be only called if crystal_reaches_xsection = True and crystal_arrives_first = False
         # This is done by compiler prioritization and the call shouldn't be refactored above like the other 2 expressions
-        return crystal_reaches_xsection and (crystal_arrives_first or not self.line_reaches_xsection(dist_matrix, reached_xsections, cross_index, main_index))
+        return crystal_reaches_xsection and (crystal_arrives_first or not self.crystal_reaches_xsection(dist_matrix, reached_xsections, obstacle_index, crystal_index))
         
 
-    def line_reaches_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
+    def crystal_reaches_xsection(self, dist_matrix, reached_xsections, crystal_index, obstacle_index):
 
-        if reached_xsections[main_index, cross_index] != 0:
-            return reached_xsections[main_index, cross_index] == 1
-        main_dist = dist_matrix[main_index, cross_index]
+        if reached_xsections[crystal_index, obstacle_index] != 0:
+            return reached_xsections[crystal_index, obstacle_index] == 1
+        main_dist = dist_matrix[crystal_index, obstacle_index]
 
         if main_dist == 0:
-            reached_xsections[main_index, cross_index] = 1
+            reached_xsections[crystal_index, obstacle_index] = 1
             return True
-        
-        if main_dist > 0:
-            for xsection in np.argsort(np.where(
-                    np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist), dist_matrix[main_index], np.inf))[:sum(np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist))]:
 
-                if reached_xsections[main_index, xsection] != 1 and not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    reached_xsections[main_index][dist_matrix[main_index] > dist_matrix[main_index, xsection]] = -1
-                    return False
+        sign = int(np.sign(main_dist))
+        for crossing in np.argsort(np.where(
+                np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign), dist_matrix[crystal_index], np.inf*sign))[::sign][:sum(np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign))]:
 
-        if main_dist < 0:
-            for xsection in np.argsort(np.where(
-                    np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist), dist_matrix[main_index], -np.inf))[::-1][:sum(np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist))]:
-
-                if reached_xsections[main_index, xsection] != 1 and not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    reached_xsections[main_index][dist_matrix[main_index] < dist_matrix[main_index, xsection]] = -1
-                    return False
+            if reached_xsections[crystal_index, crossing] != 1 and not self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, crossing):
+                reached_xsections[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, crossing]*sign] = -1
+                return False
                 
-        reached_xsections[main_index, cross_index] = 1
+        reached_xsections[crystal_index, obstacle_index] = 1
         return True
     
     def render_crystals(self):
