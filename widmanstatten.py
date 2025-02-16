@@ -38,7 +38,7 @@ class AnimationWindow:
                  height=500, 
                  fps=4, 
                  init_crystal_count=10, 
-                 mean_crystal_width=15, 
+                 mean_crystal_width=10, 
                  mean_crystal_speed=5, 
                  orientation_angles=[-1, 0, 1], 
                  background="steelblue4"):
@@ -78,9 +78,11 @@ class AnimationWindow:
     def create_window(self):
 
         distances = self.calc_intersection_distances()
+        print(distances)
         self.set_growth_limits(distances)
         
         self.render_crystals()
+        self.render_centers()
         self.root.after(self.frame_delay, self.render_crystals)
         self.root.mainloop()
 
@@ -121,17 +123,24 @@ class AnimationWindow:
                 else:
                     left_limits[crystal_index] = abs(intersection_distances[intersection_index])
 
+        print(right_limits)
+        print(left_limits)
+
         for i, crystal in enumerate(self.crystals):
             crystal.limit_right = right_limits[i]*crystal.speed
             crystal.limit_left = left_limits[i]*crystal.speed
 
 
     def line_passes_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
-        if (self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index) 
-            and (np.abs(dist_matrix[main_index, cross_index]) < np.abs(dist_matrix[cross_index, main_index]) 
-                 or not self.line_reaches_xsection(dist_matrix, reached_xsections, cross_index, main_index))):
-            return True
-        return False
+        
+        crystal_reaches_xsection = self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index)
+        crystal_arrives_first = np.abs(dist_matrix[main_index, cross_index]) < np.abs(dist_matrix[cross_index, main_index])
+
+        # To prevent issues with deeper recursive calls writing into reached_xsections before higher calls finish, 
+        # self.line_reaches_xsection below should be only called if crystal_reaches_xsection = True and crystal_arrives_first = False
+        # This is done by compiler prioritization and the call shouldn't be refactored above like the other 2 expressions
+        return crystal_reaches_xsection and (crystal_arrives_first or not self.line_reaches_xsection(dist_matrix, reached_xsections, cross_index, main_index))
+        
 
     def line_reaches_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
 
@@ -146,24 +155,16 @@ class AnimationWindow:
         if main_dist > 0:
             for xsection in np.argsort(np.where(
                     np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist), dist_matrix[main_index], np.inf))[:sum(np.logical_and(dist_matrix[main_index] > 0, dist_matrix[main_index] < main_dist))]:
-                
-                if reached_xsections[main_index, xsection] == 1:
-                    continue
-                elif reached_xsections[main_index, xsection] == -1:
-                    raise(Exception("fuck you know what"))
-                if not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
+
+                if reached_xsections[main_index, xsection] != 1 and not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
                     reached_xsections[main_index][dist_matrix[main_index] > dist_matrix[main_index, xsection]] = -1
                     return False
 
         if main_dist < 0:
             for xsection in np.argsort(np.where(
                     np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist), dist_matrix[main_index], -np.inf))[::-1][:sum(np.logical_and(dist_matrix[main_index] < 0, dist_matrix[main_index] > main_dist))]:
-                
-                if reached_xsections[main_index, xsection] == 1:
-                    continue
-                elif reached_xsections[main_index, xsection] == -1:
-                    raise(Exception("fuck you know what"))
-                if not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
+
+                if reached_xsections[main_index, xsection] != 1 and not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
                     reached_xsections[main_index][dist_matrix[main_index] < dist_matrix[main_index, xsection]] = -1
                     return False
                 
@@ -176,14 +177,13 @@ class AnimationWindow:
             if crystal.growing_right or crystal.growing_left:
                 self.redraw_crystal(crystal)
                 self.extend_crystal(crystal)
-
+                
         self.root.after(self.frame_delay, self.render_crystals)
 
     def extend_crystal(self, crystal: Crystal):
 
         if crystal.growing_right:
             self.extend_crystal_right(crystal)
-            
         if crystal.growing_left:
             self.extend_crystal_left(crystal)
 
@@ -215,7 +215,6 @@ class AnimationWindow:
         p4 = Point(crystal.center.x - crystal.length_left * crystal.cos - half_width * crystal.sin, crystal.center.y + crystal.length_left * crystal.sin - half_width * crystal.cos)
 
         return p1, p2, p3, p4
-
 
     def render_centers(self, radius: int = 10, color: str = "red"):
 
