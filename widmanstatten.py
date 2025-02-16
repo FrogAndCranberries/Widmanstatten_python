@@ -131,13 +131,9 @@ class AnimationWindow:
                 else:
                     left_limits[main_index] = abs(line[cross_index])
 
-        for i in range(self.init_crystal_count):
-            self.crystals[i].limit_right = right_limits[i]*self.crystals[i].speed
-            self.crystals[i].limit_left = left_limits[i]*self.crystals[i].speed
-
-
-
-
+        for i, crystal in enumerate(self.crystals):
+            crystal.limit_right = right_limits[i]*crystal.speed
+            crystal.limit_left = left_limits[i]*crystal.speed
 
     def line_passes_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
         if (self.line_reaches_xsection(dist_matrix, reached_xsections, main_index, cross_index) 
@@ -147,7 +143,6 @@ class AnimationWindow:
         return False
 
     def line_reaches_xsection(self, dist_matrix, reached_xsections, main_index, cross_index):
-
 
         if reached_xsections[main_index, cross_index] != 0:
             return reached_xsections[main_index, cross_index] == 1
@@ -165,9 +160,7 @@ class AnimationWindow:
                     continue
                 elif reached_xsections[main_index, xsection] == -1:
                     raise(Exception("fuck you know what"))
-                if self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    reached_xsections[main_index, xsection] = 1
-                else:
+                if not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
                     reached_xsections[main_index][dist_matrix[main_index] > dist_matrix[main_index, xsection]] = -1
                     return False
 
@@ -179,35 +172,30 @@ class AnimationWindow:
                     continue
                 elif reached_xsections[main_index, xsection] == -1:
                     raise(Exception("fuck you know what"))
-                if self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
-                    reached_xsections[main_index, xsection] = 1
-                else:
+                if not self.line_passes_xsection(dist_matrix, reached_xsections, main_index, xsection):
                     reached_xsections[main_index][dist_matrix[main_index] < dist_matrix[main_index, xsection]] = -1
                     return False
                 
         reached_xsections[main_index, cross_index] = 1
         return True
 
-
     def redraw_crystal(self, crystal: Crystal):
-
         p1, p2, p3, p4 = self.calc_crystal_corners(crystal)
-
         self.canvas.delete(crystal.id)
         self.canvas.create_polygon(p1.x, p1.y, p2.x, p2.y, p3.x, p3.y, p4.x, p4.y, fill=crystal.color, tags=crystal.id)
 
     def render_crystals(self):
-        for i in range(len(self.crystals)):
-            if self.crystals[i].growing_right or self.crystals[i].growing_left:
-                self.redraw_crystal(self.crystals[i])
-                if self.crystals[i].growing_right:
-                    self.crystals[i].length_right += self.crystals[i].speed
-                    if self.crystals[i].length_right >= self.crystals[i].limit_right:
-                        self.crystals[i].growing_right = False
-                if self.crystals[i].growing_left:
-                    self.crystals[i].length_left += self.crystals[i].speed
-                    if self.crystals[i].length_left >= self.crystals[i].limit_left:
-                        self.crystals[i].growing_left = False
+        for crystal in self.crystals:
+            if crystal.growing_right or crystal.growing_left:
+                self.redraw_crystal(crystal)
+                if crystal.growing_right:
+                    crystal.length_right += crystal.speed
+                    if crystal.length_right >= crystal.limit_right:
+                        crystal.growing_right = False
+                if crystal.growing_left:
+                    crystal.length_left += crystal.speed
+                    if crystal.length_left >= crystal.limit_left:
+                        crystal.growing_left = False
         
         self.root.after(self.frame_delay, self.render_crystals)
 
