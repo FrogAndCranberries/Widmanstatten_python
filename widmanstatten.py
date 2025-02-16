@@ -2,6 +2,7 @@ import tkinter as tk
 import numpy as np
 from random import randint, choice
 from dataclasses import dataclass, field
+from enum import Enum
 
 np.set_printoptions(precision=2)
 
@@ -30,6 +31,11 @@ class Crystal:
     def __post_init__(self):
         self.cos = np.cos(self.angle)
         self.sin = np.sin(self.angle)
+
+class IntersectionState(Enum):
+    NOTREACHED = -1
+    UNKNOWN = 0
+    REACHED = 1
 
 class AnimationWindow:
 
@@ -105,20 +111,20 @@ class AnimationWindow:
     
     def set_growth_limits(self, dist_matrix):
 
-        reached_xsections = np.zeros((self.init_crystal_count, self.init_crystal_count))
+        intersection_states = np.full((self.init_crystal_count, self.init_crystal_count), IntersectionState.UNKNOWN)
         right_limits = np.full(self.init_crystal_count, self.max_length)
         left_limits = np.full(self.init_crystal_count, self.max_length)
 
 
         for crystal_index, intersection_distances in enumerate(dist_matrix):
             for intersection_index in np.argsort(intersection_distances)[::-1][:np.sum(intersection_distances > 0)]:
-                if self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
+                if self.crystal_passes_xsection(dist_matrix, intersection_states, crystal_index, intersection_index):
                     break
                 else:
                     right_limits[crystal_index] = abs(intersection_distances[intersection_index])
 
             for intersection_index in np.argsort(intersection_distances)[:np.sum(intersection_distances < 0)]:
-                if self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, intersection_index):
+                if self.crystal_passes_xsection(dist_matrix, intersection_states, crystal_index, intersection_index):
                     break
                 else:
                     left_limits[crystal_index] = abs(intersection_distances[intersection_index])
@@ -131,36 +137,36 @@ class AnimationWindow:
             crystal.limit_left = left_limits[i]*crystal.speed
 
 
-    def crystal_passes_xsection(self, dist_matrix, reached_xsections, crystal_index, obstacle_index):
+    def crystal_passes_xsection(self, dist_matrix, intersection_states, crystal_index, obstacle_index):
         
-        crystal_reaches_xsection = self.crystal_reaches_xsection(dist_matrix, reached_xsections, crystal_index, obstacle_index)
+        crystal_reaches_xsection = self.crystal_reaches_xsection(dist_matrix, intersection_states, crystal_index, obstacle_index)
         crystal_arrives_first = np.abs(dist_matrix[crystal_index, obstacle_index]) < np.abs(dist_matrix[obstacle_index, crystal_index])
 
         # To prevent issues with deeper recursive calls writing into reached_xsections before higher calls finish, 
         # self.crystal_reaches_xsection below should be only called if crystal_reaches_xsection = True and crystal_arrives_first = False
         # This is done by compiler prioritization and the call shouldn't be refactored above like the other 2 expressions
-        return crystal_reaches_xsection and (crystal_arrives_first or not self.crystal_reaches_xsection(dist_matrix, reached_xsections, obstacle_index, crystal_index))
+        return crystal_reaches_xsection and (crystal_arrives_first or not self.crystal_reaches_xsection(dist_matrix, intersection_states, obstacle_index, crystal_index))
         
 
-    def crystal_reaches_xsection(self, dist_matrix, reached_xsections, crystal_index, obstacle_index):
+    def crystal_reaches_xsection(self, dist_matrix, intersection_states, crystal_index, obstacle_index):
 
-        if reached_xsections[crystal_index, obstacle_index] != 0:
-            return reached_xsections[crystal_index, obstacle_index] == 1
+        if intersection_states[crystal_index, obstacle_index] != IntersectionState.UNKNOWN:
+            return intersection_states[crystal_index, obstacle_index] == IntersectionState.REACHED
         main_dist = dist_matrix[crystal_index, obstacle_index]
 
         if main_dist == 0:
-            reached_xsections[crystal_index, obstacle_index] = 1
+            intersection_states[crystal_index, obstacle_index] = IntersectionState.REACHED
             return True
 
         sign = int(np.sign(main_dist))
         for crossing in np.argsort(np.where(
                 np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign), dist_matrix[crystal_index], np.inf*sign))[::sign][:sum(np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign))]:
 
-            if reached_xsections[crystal_index, crossing] != 1 and not self.crystal_passes_xsection(dist_matrix, reached_xsections, crystal_index, crossing):
-                reached_xsections[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, crossing]*sign] = -1
+            if intersection_states[crystal_index, crossing] != IntersectionState.REACHED and not self.crystal_passes_xsection(dist_matrix, intersection_states, crystal_index, crossing):
+                intersection_states[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, crossing]*sign] = IntersectionState.NOTREACHED
                 return False
                 
-        reached_xsections[crystal_index, obstacle_index] = 1
+        intersection_states[crystal_index, obstacle_index] = IntersectionState.REACHED
         return True
     
     def render_crystals(self):
@@ -212,9 +218,6 @@ class AnimationWindow:
 
         for crystal in self.crystals:
             self.canvas.create_oval(crystal.center.x - radius, crystal.center.y - radius, crystal.center.x + radius, crystal.center.y + radius, fill=color)
-
-
-        
 
     
 master = AnimationWindow()
