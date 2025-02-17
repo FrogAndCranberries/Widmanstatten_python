@@ -42,11 +42,11 @@ class AnimationWindow:
     def __init__(self, 
                  width=500, 
                  height=500, 
-                 fps=4, 
-                 init_crystal_count=10, 
+                 fps=5, 
+                 init_crystal_count=10,
                  mean_crystal_width=10, 
                  mean_crystal_speed=5, 
-                 orientation_angles=[-1, 0, 1], 
+                 orientation_angles=[-1., 0, 1.],
                  background="steelblue4"):
         
         self.width = width
@@ -80,15 +80,15 @@ class AnimationWindow:
 
         self.canvas = tk.Canvas(self.root, width=self.width, height=self.height, bg=background)
         self.canvas.pack()
+        self.canvas.bind("<Button-1>", self.add_crystal)
 
     def create_window(self):
 
         distances = self.calc_intersection_distances()
-        print(distances)
         self.set_growth_limits(distances)
         
         self.render_crystals()
-        self.render_centers()
+        #self.render_centers()
         self.root.after(self.frame_delay, self.render_crystals)
         self.root.mainloop()
 
@@ -111,9 +111,9 @@ class AnimationWindow:
     
     def set_growth_limits(self, dist_matrix):
 
-        intersection_states = np.full((self.init_crystal_count, self.init_crystal_count), IntersectionState.UNKNOWN)
-        right_limits = np.full(self.init_crystal_count, self.max_length)
-        left_limits = np.full(self.init_crystal_count, self.max_length)
+        intersection_states = np.full((len(self.crystals), len(self.crystals)), IntersectionState.UNKNOWN)
+        right_limits = np.full(len(self.crystals), self.max_length)
+        left_limits = np.full(len(self.crystals), self.max_length)
 
 
         for crystal_index, intersection_distances in enumerate(dist_matrix):
@@ -128,14 +128,12 @@ class AnimationWindow:
                     break
                 else:
                     left_limits[crystal_index] = abs(intersection_distances[intersection_index])
-
-        print(right_limits)
-        print(left_limits)
+        
+        self.intersection_states_cache = intersection_states
 
         for i, crystal in enumerate(self.crystals):
             crystal.limit_right = right_limits[i]*crystal.speed
             crystal.limit_left = left_limits[i]*crystal.speed
-
 
     def crystal_passes_xsection(self, dist_matrix, intersection_states, crystal_index, obstacle_index):
         
@@ -160,14 +158,73 @@ class AnimationWindow:
 
         sign = int(np.sign(main_dist))
         for crossing in np.argsort(np.where(
-                np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign), dist_matrix[crystal_index], np.inf*sign))[::sign][:sum(np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign))]:
+                np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign), 
+                dist_matrix[crystal_index], np.inf*sign))[::sign][:sum(
+                    np.logical_and(np.sign(dist_matrix[crystal_index]) == sign, dist_matrix[crystal_index]*sign < main_dist*sign))]:
 
-            if intersection_states[crystal_index, crossing] != IntersectionState.REACHED and not self.crystal_passes_xsection(dist_matrix, intersection_states, crystal_index, crossing):
+            if (intersection_states[crystal_index, crossing] != IntersectionState.REACHED 
+                and not self.crystal_passes_xsection(dist_matrix, intersection_states, crystal_index, crossing)):
                 intersection_states[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, crossing]*sign] = IntersectionState.NOTREACHED
                 return False
                 
         intersection_states[crystal_index, obstacle_index] = IntersectionState.REACHED
         return True
+    
+    def add_crystal(self, event):
+        center = Point(event.x, event.y)
+        self.crystals.append(Crystal(
+            center = center,
+            length_right = self.init_crystal_length,
+            length_left = self.init_crystal_length,
+            width = randint(self.mean_crystal_width // 2, self.mean_crystal_width * 3 // 2), 
+            angle = choice(self.orientation_angles),
+            color = "yellow",
+            speed = randint(self.mean_crystal_speed * 3 // 4, self.mean_crystal_speed * 5 // 4),
+            id = str(int(self.crystals[-1].id) + 1),
+            growing_right = True,
+            growing_left = True,
+            limit_right = self.max_length,
+            limit_left = self.max_length)
+        )
+
+        distances = self.calc_intersection_distances() # yes, this could be made more efficient by writing another iterative distance calculator
+        self.set_last_crystal_growth_limit(distances)
+
+    def set_last_crystal_growth_limit(self, dist_matrix):
+        
+
+        intersection_states = np.full((len(self.crystals), len(self.crystals)), IntersectionState.UNKNOWN)
+        intersection_states[:self.intersection_states_cache.shape[0], :self.intersection_states_cache.shape[1]] = self.intersection_states_cache
+
+        right_limit = self.max_length
+        left_limit = self.max_length
+
+        crystal_index = -1
+        intersection_distances = dist_matrix[crystal_index,:]
+
+        for intersection_index in np.argsort(intersection_distances)[-np.sum(intersection_distances > 0):]:
+            intersection_states[crystal_index, intersection_index] = IntersectionState.REACHED
+            if self.crystal_reaches_xsection(dist_matrix, intersection_states, intersection_index, crystal_index):
+                right_limit = abs(intersection_distances[intersection_index])
+                sign = np.sign(dist_matrix[crystal_index, intersection_index])
+                intersection_states[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, intersection_index]*sign] = IntersectionState.NOTREACHED
+                break
+
+        for intersection_index in np.argsort(intersection_distances)[:np.sum(intersection_distances < 0)][::-1]:
+            intersection_states[crystal_index, intersection_index] = IntersectionState.REACHED
+            if self.crystal_reaches_xsection(dist_matrix, intersection_states, intersection_index, crystal_index):
+                left_limit = abs(intersection_distances[intersection_index])
+                sign = np.sign(dist_matrix[crystal_index, intersection_index])
+                intersection_states[crystal_index][dist_matrix[crystal_index]*sign > dist_matrix[crystal_index, intersection_index]*sign] = IntersectionState.NOTREACHED
+                break
+                
+
+        self.intersection_states_cache = intersection_states
+
+        
+        self.crystals[-1].limit_right = right_limit*self.crystals[-1].speed
+        self.crystals[-1].limit_left = left_limit*self.crystals[-1].speed
+
     
     def render_crystals(self):
 
